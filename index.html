@@ -3,10 +3,312 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>test branch </title>
+    <title>MedConnect – Video Consultation</title>
+    <style>
+        :root {
+            --bg: #0f172a;
+            --panel: #111827;
+            --muted: #94a3b8;
+            --text: #e5e7eb;
+            --accent: #60a5fa;
+            --accent-2: #34d399;
+            --danger: #ef4444;
+            --card: linear-gradient(135deg, #3730a3 0%, #0ea5e9 100%);
+        }
+        html, body { height: 100%; }
+        body {
+            margin: 0;
+            font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+            background: var(--bg);
+            color: var(--text);
+        }
+        .app {
+            max-width: 1040px;
+            margin: 0 auto;
+            padding: 24px 16px 56px;
+        }
+        .nav {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+        .brand { font-weight: 700; letter-spacing: 0.2px; }
+        .tabs { display: flex; gap: 8px; }
+        .tab { color: var(--muted); padding: 8px 12px; border-radius: 10px; }
+        .tab.active { color: var(--text); background: #0b1220; }
+        .page-title { margin: 24px 0 12px; font-size: 28px; }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1.3fr 1fr;
+            gap: 16px;
+        }
+        @media (max-width: 920px) { .grid { grid-template-columns: 1fr; } }
+
+        .panel {
+            background: var(--panel);
+            border-radius: 16px;
+            border: 1px solid rgba(255,255,255,0.06);
+            padding: 16px;
+        }
+        .preview-card {
+            background: var(--card);
+            border-radius: 16px;
+            height: 340px;
+            position: relative;
+            overflow: hidden;
+            display: grid;
+            place-items: center;
+        }
+        .preview-card video { width: 100%; height: 100%; object-fit: cover; display: none; }
+        .preview-overlay { position: absolute; inset: 0; display: grid; place-items: center; color: white; text-align: center; padding: 16px; }
+        .preview-title { font-weight: 700; font-size: 18px; margin-top: 6px; }
+        .controls { display: flex; gap: 8px; flex-wrap: wrap; }
+        .btn {
+            display: inline-flex; align-items: center; gap: 8px;
+            border: 1px solid rgba(255,255,255,0.08);
+            background: #0b1220;
+            color: var(--text);
+            padding: 10px 14px; border-radius: 12px; cursor: pointer;
+            transition: transform 0.06s ease, background 0.2s ease, border-color 0.2s ease;
+            user-select: none;
+        }
+        .btn:hover { transform: translateY(-1px); border-color: rgba(255,255,255,0.18); }
+        .btn.primary { background: var(--accent); border-color: transparent; color: #0b1220; font-weight: 700; }
+        .btn.success { background: var(--accent-2); border-color: transparent; color: #063d2b; font-weight: 700; }
+        .btn.ghost { background: transparent; }
+        .btn.danger { background: var(--danger); color: #fff; border-color: transparent; font-weight: 700; }
+        .btn[disabled] { opacity: .55; cursor: not-allowed; }
+
+        .feature {
+            display: flex; gap: 12px; align-items: center;
+            padding: 12px; border-radius: 12px; background: #0b1220; border: 1px solid rgba(255,255,255,0.06);
+        }
+        .feature .icon { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 10px; background: rgba(255,255,255,0.06); }
+        .muted { color: var(--muted); }
+
+        /* In-call */
+        .call {
+            display: none;
+            grid-template-columns: 1fr 280px;
+            gap: 16px;
+        }
+        .stage { position: relative; background: #0b1220; border-radius: 16px; overflow: hidden; border: 1px solid rgba(255,255,255,0.06); min-height: 420px; }
+        .remote, .local { width: 100%; height: 100%; object-fit: cover; background: #020617; }
+        .local-wrapper { position: absolute; right: 12px; bottom: 12px; width: 220px; height: 124px; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.12); }
+        .call-controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: center; margin-top: 12px; }
+
+        /* Chat */
+        .chat { background: var(--panel); border-radius: 16px; border: 1px solid rgba(255,255,255,0.06); display: flex; flex-direction: column; min-height: 420px; }
+        .chat-header { padding: 12px 14px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+        .chat-body { flex: 1; padding: 12px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+        .bubble { max-width: 80%; padding: 10px 12px; border-radius: 12px; }
+        .bubble.me { align-self: flex-end; background: #1e293b; }
+        .bubble.them { align-self: flex-start; background: #0b1220; }
+        .chat-input { display: flex; gap: 8px; padding: 12px; border-top: 1px solid rgba(255,255,255,0.06); }
+        .chat-input input { flex: 1; background: #0b1220; border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 10px 12px; color: var(--text); }
+    </style>
+    <script>
+        let localStream = null;
+        let screenStream = null;
+        let isInCall = false;
+
+        async function ensureMedia() {
+            if (localStream) return localStream;
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                return localStream;
+            } catch (err) {
+                alert('Unable to access camera/microphone. Please grant permissions.');
+                throw err;
+            }
+        }
+
+        function qs(sel) { return document.querySelector(sel); }
+
+        async function initPreview() {
+            const stream = await ensureMedia();
+            const v = qs('#previewVideo');
+            v.srcObject = stream; v.muted = true; await v.play();
+            v.style.display = 'block';
+            qs('#previewOverlay').style.display = 'none';
+            updateDeviceButtons();
+        }
+
+        function updateDeviceButtons() {
+            const hasVideo = localStream?.getVideoTracks()?.[0]?.enabled !== false;
+            const hasAudio = localStream?.getAudioTracks()?.[0]?.enabled !== false;
+            qs('#btnCam').innerText = hasVideo ? 'Camera On' : 'Camera Off';
+            qs('#btnMic').innerText = hasAudio ? 'Mic On' : 'Mic Off';
+        }
+
+        function toggleCamera() {
+            if (!localStream) return;
+            const track = localStream.getVideoTracks()[0];
+            if (!track) return;
+            track.enabled = !track.enabled;
+            updateDeviceButtons();
+        }
+
+        function toggleMic() {
+            if (!localStream) return;
+            const track = localStream.getAudioTracks()[0];
+            if (!track) return;
+            track.enabled = !track.enabled;
+            updateDeviceButtons();
+        }
+
+        async function startCall() {
+            await initPreview();
+            isInCall = true;
+            qs('#precall').style.display = 'none';
+            qs('#incall').style.display = 'grid';
+            // Attach streams to in-call videos
+            qs('#localVideo').srcObject = localStream; qs('#localVideo').muted = true; qs('#localVideo').play();
+            // Placeholder remote: mirror local for demo
+            qs('#remoteVideo').srcObject = localStream; qs('#remoteVideo').play();
+        }
+
+        function endCall() {
+            isInCall = false;
+            if (screenStream) {
+                stopScreenShare();
+            }
+            qs('#incall').style.display = 'none';
+            qs('#precall').style.display = 'block';
+        }
+
+        async function startScreenShare() {
+            try {
+                screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+                qs('#remoteVideo').srcObject = screenStream;
+                qs('#btnShare').innerText = 'Stop Share';
+                screenStream.getVideoTracks()[0].onended = () => { stopScreenShare(); };
+            } catch (e) {
+                console.log('Screen share cancelled', e);
+            }
+        }
+
+        function stopScreenShare() {
+            if (!screenStream) return;
+            screenStream.getTracks().forEach(t => t.stop());
+            screenStream = null;
+            qs('#remoteVideo').srcObject = localStream;
+            qs('#btnShare').innerText = 'Share Screen';
+        }
+
+        function toggleShare() { screenStream ? stopScreenShare() : startScreenShare(); }
+
+        function sendChat() {
+            const input = qs('#chatInput');
+            const text = input.value.trim();
+            if (!text) return;
+            const body = qs('#chatBody');
+            const me = document.createElement('div');
+            me.className = 'bubble me';
+            me.textContent = text;
+            body.appendChild(me);
+            input.value = '';
+            setTimeout(() => {
+                const them = document.createElement('div');
+                them.className = 'bubble them';
+                them.textContent = 'Dr. Sarah Johnson: Thanks for your message.';
+                body.appendChild(them);
+                body.scrollTop = body.scrollHeight;
+            }, 600);
+            body.scrollTop = body.scrollHeight;
+        }
+
+        window.addEventListener('DOMContentLoaded', () => { initPreview(); });
+    </script>
 </head>
 <body>
-    <h3>this is test btranch</h3>
-    <h2>i change this using online code </h2>
+    <div class="app">
+        <div class="nav">
+            <div class="brand">MedConnect</div>
+            <div class="tabs">
+                <div class="tab">Dashboard</div>
+                <div class="tab">Appointments</div>
+                <div class="tab active">Video Calls</div>
+                <div class="tab">Messages</div>
+            </div>
+        </div>
+
+        <div id="precall">
+            <div class="page-title">Video Consultation</div>
+            <div class="grid">
+                <div class="panel">
+                    <div class="preview-card">
+                        <video id="previewVideo" playsinline></video>
+                        <div id="previewOverlay" class="preview-overlay">
+                            <div>
+                                <div style="font-size:40px;opacity:.9">📹</div>
+                                <div class="preview-title">Camera Preview</div>
+                                <div class="muted">Camera is ready</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div style="height: 12px"></div>
+                    <div class="controls">
+                        <button id="btnCam" class="btn" onclick="toggleCamera()">Camera On</button>
+                        <button id="btnMic" class="btn" onclick="toggleMic()">Mic On</button>
+                        <div style="flex:1"></div>
+                        <button class="btn success" onclick="startCall()">Start Conversation</button>
+                    </div>
+                </div>
+                <div class="panel" style="display:flex;flex-direction:column;gap:12px;">
+                    <div class="feature">
+                        <div class="icon" style="background:#1e3a8a20">🎥</div>
+                        <div>
+                            <div style="font-weight:700">HD Video Quality</div>
+                            <div class="muted">Crystal clear video calls for accurate consultations</div>
+                        </div>
+                    </div>
+                    <div class="feature">
+                        <div class="icon" style="background:#10b98120">🖥️</div>
+                        <div>
+                            <div style="font-weight:700">Screen Sharing</div>
+                            <div class="muted">Share medical reports and documents securely</div>
+                        </div>
+                    </div>
+                    <div class="feature">
+                        <div class="icon" style="background:#a855f720">💬</div>
+                        <div>
+                            <div style="font-weight:700">In-Call Chat</div>
+                            <div class="muted">Send messages during the video consultation</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="incall" class="call">
+            <div>
+                <div class="stage">
+                    <video id="remoteVideo" class="remote" playsinline autoplay></video>
+                    <div class="local-wrapper">
+                        <video id="localVideo" class="local" playsinline autoplay muted></video>
+                    </div>
+                </div>
+                <div class="call-controls">
+                    <button id="btnCam2" class="btn" onclick="toggleCamera(); this.innerText = (localStream.getVideoTracks()[0].enabled? 'Camera On':'Camera Off');">Camera On</button>
+                    <button id="btnMic2" class="btn" onclick="toggleMic(); this.innerText = (localStream.getAudioTracks()[0].enabled? 'Mic On':'Mic Off');">Mic On</button>
+                    <button id="btnShare" class="btn" onclick="toggleShare()">Share Screen</button>
+                    <button class="btn danger" onclick="endCall()">End Call</button>
+                </div>
+            </div>
+            <div class="chat">
+                <div class="chat-header">In-Call Chat</div>
+                <div id="chatBody" class="chat-body">
+                    <div class="bubble them">Welcome to your consultation. How can I help you today?</div>
+                </div>
+                <div class="chat-input">
+                    <input id="chatInput" type="text" placeholder="Type a message..." onkeydown="if(event.key==='Enter'){sendChat()}" />
+                    <button class="btn primary" onclick="sendChat()">Send</button>
+                </div>
+            </div>
+        </div>
+    </div>
 </body>
-</html>5
+</html>
